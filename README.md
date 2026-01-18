@@ -1,56 +1,79 @@
-# Context:
-
- Stack Overview
-
-  This setup involves three main components working in sequence to download audiobooks from Listenarr using a debrid service:
-
-   1. Listenarr & Prowlarr: Listenarr initiates a search for an audiobook. It sends this search request to Prowlarr, which finds a magnet:
-      link for the desired content from an indexer like AudioBookBay.
-
-   2. Torznab Proxy: Instead of Listenarr talking directly to Prowlarr, it talks to this proxy. The proxy intercepts Prowlarr's response
-      and rewrites the download link. Instead of a direct magnet: link (which Listenarr can't send to RDT Client), it creates a special
-      HTTP link (e.g., http://your-proxy-ip/dl/...).
-
-   3. Patched RDT Client: Listenarr sends this special HTTP link to your patched rdt-client, thinking it's a standard .torrent file
-      download. The patch on this rdt-client then does the following:
-       * It downloads the content from the proxy's HTTP link.
-       * It intelligently checks the content, sees that it's actually a magnet: link in plain text.
-       * It correctly processes this as a magnet link and sends it to your configured debrid service (e.g., AllDebrid, Real-Debrid) for
-         downloading.
-
-  This workflow bridges the gap between Listenarr's download client integration and indexers that only provide magnet links, with the
-  proxy and the patched rdt-client acting as the essential intermediaries.
-
-#  Repos:
-  1. Proxy: https://github.com/gitsumhubs/torznab-proxy
+#  Repo Stack:
+  1. Torznab-Proxy: https://github.com/gitsumhubs/torznab-proxy
   2. RDT-Client-forked: https://github.com/gitsumhubs/rdt-client-listenarr-magnets
   3. Listenarr: https://github.com/therobbiedavis/Listenarr
+  4. Prowlarr-abb: https://github.com/BitlessByte0/prowlarr-abb
+     
+# Context:
 
+This is a complete quad-stack designed to bridge a gap in Listenarr's automation workflow, specifically for indexers that only provide
+  magnet links.
 
-# Setup
+  The process begins with Listenarr and a specialized Prowlarr fork, which finds the desired audiobook and generates a magnet link.
+  However, Listenarr cannot directly send this type of link to the download client in a way it understands.
 
-  Guide: Setting Up the Listenarr Trio Stack
+  To solve this, the Torznab Proxy intercepts the communication. It takes the magnet link from Prowlarr and cleverly rewrites it into a
+  standard HTTP download link. Listenarr then passes this new link to the patched RDT Client, believing it's a simple file download. The
+  custom patch on the RDT Client allows it to intelligently recognize that this is not a file, but a disguised magnet link, which it then
+  correctly processes and sends to your debrid service for downloading
 
-  This guide explains how to deploy the full audiobook automation stack, consisting of a patched RDT Client, the Torznab Proxy, and
-  Listenarr/Prowlarr.
+  # Guide: 
+
+Setting Up the Listenarr Quad Stack
+
+  This guide explains how to deploy the full audiobook automation stack, consisting of Listenarr, a Prowlarr fork for AudioBookBay, a
+  patched RDT Client, and the Torznab Proxy.
 
   Prerequisites
 
    * A server with Docker and Docker Compose installed.
    * Your patched rdt-client and torznab-proxy images pushed to your GitHub Packages registry (ghcr.io).
-   * The IP addresses of your server and your Prowlarr instance.
+   * The IP address of your server.
 
   ---
 
-  Step 1: Deploy the Patched RDT Client
+  Step 1: Deploy the Prowlarr Fork (prowlarr-abb)
 
-  This is your download client that can correctly handle magnet links provided by the proxy.
+  This is the specialized version of Prowlarr that includes the AudioBookBay indexer.
 
-   1. Create a directory for your RDT Client:
+   1. Create a directory for your Prowlarr instance:
+
+   1     mkdir -p /docker/prowlarr-abb
+   2     cd /docker/prowlarr-abb
+
+   2. Create a docker-compose.yml file. Based on the repository at https://github.com/BitlessByte0/prowlarr-abb, you'll likely use their
+      pre-built image.
+
+    1     services:
+    2       prowlarr-abb:
+    3         image: ghcr.io/bitlessbyte0/prowlarr-abb:latest
+    4         container_name: prowlarr-abb
+    5         environment:
+    6           - PUID=1000
+    7           - PGID=1000
+    8           - TZ=America/Detroit
+    9         volumes:
+   10           - ./config:/config
+   11         ports:
+   12           - "9696:9696"
+   13         restart: unless-stopped
+      Note: Please check the prowlarr-abb repository for their official recommended docker-compose.yml if this one doesn't work as
+  expected.
+
+   3. Start the container:
+   1     docker compose up -d
+
+  ---
+
+  Step 2: Deploy the Patched RDT Client
+
+  This is your download client that correctly handles magnet links from the proxy.
+
+   1. Create a directory:
    1     mkdir -p /docker/rdt-client
    2     cd /docker/rdt-client
 
-   2. Create a docker-compose.yml file in this directory and paste the following content:
+   2. Create a docker-compose.yml file with the following:
 
     1     services:
     2       rdtclient:
@@ -73,15 +96,15 @@
 
   ---
 
-  Step 2: Deploy the Torznab Proxy
+  Step 3: Deploy the Torznab Proxy
 
-  This proxy rewrites Prowlarr's URLs so they can be correctly handled by the patched RDT Client.
+  This proxy rewrites Prowlarr's URLs for the RDT Client.
 
-   1. Create a directory for your proxy:
+   1. Create a directory:
    1     mkdir -p /docker/torznab-proxy
    2     cd /docker/torznab-proxy
 
-   2. Create a docker-compose.yml file in this directory and paste the following content:
+   2. Create a docker-compose.yml file with the following:
 
     1     services:
     2       torznab-proxy:
@@ -93,34 +116,29 @@
     8         ports:
     9           - "80:9797"
    10         restart: unless-stopped
-      Action: Change your_prowlarr_ip to the IP of your Prowlarr container and your_server_ip to the IP of the server running this proxy.
+      Action: Change your_prowlarr_ip to the IP of your prowlarr-abb container and your_server_ip to the IP of the server running this
+  proxy.
 
    3. Start the container:
+
    1     docker compose up -d
 
   ---
 
-  Step 3: Configure Listenarr and Prowlarr
+  Step 4: Configure Listenarr
 
-   1. Set up Prowlarr: Ensure Prowlarr is running and has your desired indexer (e.g., AudioBookBay) configured. Note its indexer ID (e.g.,
-      1).
+  Finally, deploy Listenarr as you normally would and configure it to connect all the pieces.
 
-   2. Configure Listenarr's Download Client:
-       * In Listenarr, go to Settings > Download Clients.
-       * Add a new qBittorrent client.
-       * Point it to your RDT Client:
-           * Host: Your server's IP
-           * Port: 6500
+   1. Configure Download Client:
+       * In Listenarr Settings > Download Clients, add a qBittorrent client pointing to your RDT Client (http://your_server_ip:6500).
 
-   3. Configure Listenarr's Indexer:
-       * In Listenarr, go to Settings > Indexers.
-       * Add a new Torznab indexer.
-       * Crucially, point it to your `torznab-proxy`, not directly to Prowlarr. The URL will look something like this, replacing the IP
-         and indexer ID:
+   2. Configure Indexer:
+       * In Listenarr Settings > Indexers, add a Torznab indexer.
+       * Crucially, point it to your `torznab-proxy`, not directly to Prowlarr. The URL will look something like this (replacing the IP
+         and indexer ID from your Prowlarr):
            * http://your_server_ip/api/v1/indexer/1/newznab
 
-  Your setup is now complete. When Listenarr finds a download, it will talk to the proxy, which will then talk to Prowlarr, rewrite the
-  URL, and send it to your patched RDT Client to be processed correctly
+
   
 
 # Torznab Proxy for Listenarr
