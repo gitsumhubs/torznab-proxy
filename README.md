@@ -136,6 +136,10 @@ Finally, deploy Listenarr as you normally would and configure it to connect all 
 2.  **Configure Indexer:**
     *   In Listenarr `Settings` > `Indexers`, add a `Torznab` indexer.
     *   **Crucially, point it to your `torznab-proxy`**, not directly to Prowlarr. The URL will look something like this (replacing the IP and indexer ID from your Prowlarr):
+        `http://your_server_ip/api/v1/indexer/1/newznab`
+        
+---------------------
+
 # Torznab Proxy for Listenarr
 
 This is a simple Node.js proxy designed to sit between Listenarr and Prowlarr. Its primary purpose is to rewrite Prowlarr URLs and handle magnet link redirection, ensuring smooth operation between Listenarr, RDT clients, and debrid services.
